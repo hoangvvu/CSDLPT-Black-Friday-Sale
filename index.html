@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>⚡ Flash Sale — Concurrency Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        display: ['Outfit', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        midnight: '#f8fafc',
+                        surface: '#f1f5f9',
+                        panel: '#ffffff',
+                        border: '#e2e8f0',
+                        accent: '#0284c7',
+                        hot: '#e11d48',
+                        win: '#16a34a',
+                        lose: '#dc2626',
+                        gold: '#d97706',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            background: #f8fafc;
+            font-family: 'Outfit', sans-serif;
+            overflow-x: hidden;
+        }
+
+        /* ── Animated mesh background ─────────────────────────── */
+        .mesh-bg {
+            position: fixed; inset: 0; z-index: 0; pointer-events: none;
+            background:
+                radial-gradient(ellipse 80% 50% at 20% 30%, rgba(2,132,199,.08) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 40% at 80% 70%, rgba(225,29,72,.08) 0%, transparent 60%),
+                radial-gradient(ellipse 50% 50% at 50% 50%, rgba(217,119,6,.08) 0%, transparent 60%);
+        }
+
+        /* ── Glow button ──────────────────────────────────────── */
+        .btn-glow {
+            position: relative;
+            transition: all .2s ease;
+        }
+        .btn-glow::after {
+            content: '';
+            position: absolute; inset: -2px; border-radius: inherit;
+            background: linear-gradient(135deg, rgba(2,132,199,.3), rgba(225,29,72,.3));
+            z-index: -1; opacity: 0; filter: blur(10px);
+            transition: opacity .3s ease;
+        }
+        .btn-glow:hover::after { opacity: 1; }
+        .btn-glow:hover { transform: translateY(-1px); }
+        .btn-glow:active { transform: translateY(0); }
+
+        /* ── Table row animation ──────────────────────────────── */
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-20px); }
+            to   { opacity: 1; transform: translateX(0); }
+        }
+        .row-animate {
+            animation: slideIn .35s ease forwards;
+            opacity: 0;
+        }
+
+        /* ── Pulse ring on fire button ────────────────────────── */
+        @keyframes pulseRing {
+            0%   { box-shadow: 0 0 0 0 rgba(225,29,72,.4); }
+            70%  { box-shadow: 0 0 0 14px rgba(225,29,72,0); }
+            100% { box-shadow: 0 0 0 0 rgba(225,29,72,0); }
+        }
+        .pulse-ring { animation: pulseRing 1.5s infinite; }
+
+        /* ── Spinner ──────────────────────────────────────────── */
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spinner {
+            width: 18px; height: 18px; border: 2.5px solid rgba(0,0,0,.15);
+            border-top-color: #fff; border-radius: 50%;
+            animation: spin .6s linear infinite; display: inline-block;
+        }
+
+        /* ── Knowledge panel transition ───────────────────────── */
+        .panel-content { transition: opacity .3s ease, transform .3s ease; }
+        .panel-fade-out { opacity: 0; transform: translateY(6px); }
+        .panel-fade-in  { opacity: 1; transform: translateY(0); }
+
+        /* ── Stats counter ────────────────────────────────────── */
+        @keyframes countUp {
+            from { opacity: 0; transform: scale(.8); }
+            to   { opacity: 1; transform: scale(1); }
+        }
+        .stat-pop { animation: countUp .4s cubic-bezier(.34,1.56,.64,1) forwards; }
+
+        /* ── Custom scrollbar ─────────────────────────────────── */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+        /* ── Select styling ───────────────────────────────────── */
+        select {
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8.825a.5.5 0 01-.354-.146l-3.5-3.5a.5.5 0 01.708-.708L6 7.617l3.146-3.146a.5.5 0 01.708.708l-3.5 3.5A.5.5 0 016 8.825z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 14px center;
+            background-size: 14px;
+        }
+
+        /* ── Fastest badge ────────────────────────────────────── */
+        @keyframes badgePop {
+            0%   { transform: scale(0); }
+            60%  { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+        .badge-fastest { animation: badgePop .4s cubic-bezier(.34,1.56,.64,1) forwards; }
+
+        /* ── Progress bar ─────────────────────────────────────── */
+        @keyframes progressFill {
+            from { width: 0%; }
+            to   { width: 100%; }
+        }
+    </style>
+</head>
+<body class="min-h-screen text-slate-700 font-display relative">
+
+    <!-- Mesh background -->
+    <div class="mesh-bg"></div>
+
+    <!-- ═══════════════════ HEADER ═══════════════════ -->
+    <header class="relative z-10 border-b border-border/80 backdrop-blur-md bg-white/80 sticky top-0 shadow-sm">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex flex-col lg:flex-row items-center gap-4">
+            <!-- Logo -->
+            <div class="flex items-center gap-3 mr-auto">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-hot flex items-center justify-center text-lg text-white shadow-sm">⚡</div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight text-slate-900 leading-none">Flash Sale Demo</h1>
+                    <p class="text-xs text-slate-500 font-mono">Concurrency &middot; Distributed DB</p>
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="flex items-center gap-3 flex-wrap justify-center">
+                <!-- Dropdown -->
+                <select id="methodSelect"
+                    class="bg-panel border border-border rounded-xl px-4 py-2.5 pr-10 text-sm font-medium text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-accent/50 cursor-pointer min-w-[240px]">
+                    <option value="buy-no-lock">1 — No Lock (Oversell)</option>
+                    <option value="buy-atomic">2 — Atomic Operation (SP)</option>
+                    <option value="buy-pessimistic">3 — Pessimistic Lock (UPDLOCK)</option>
+                    <option value="buy-optimistic">4 — Optimistic Lock (Version check)</option>
+                    <option value="buy-serializable">5 — Serializable Isolation (Deadlock)</option>
+                    <option value="buy-reserved-counter">6 — Redis Reserved Counter</option>
+                    <option value="buy-distributed-lock">7 — Distributed Lock (Redis SETNX)</option>
+                    <option value="buy-queue">8 — Message Queue (Redis List + Worker)</option>
+                </select>
+
+                <!-- Reset button -->
+                <button id="btnReset" onclick="resetDatabase()"
+                    class="btn-glow bg-panel border border-border hover:border-gold/50 hover:bg-amber-50 text-gold rounded-xl px-5 py-2.5 text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Reset DB
+                </button>
+
+                <!-- Fire button -->
+                <button id="btnFire" onclick="fireThreads()"
+                    class="btn-glow bg-gradient-to-r from-hot to-rose-700 hover:from-rose-600 hover:to-hot text-white rounded-xl px-6 py-2.5 text-sm font-bold flex items-center gap-2 shadow-md shadow-hot/20">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    <span id="btnFireText">Bắn 20 Luồng</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="relative z-10 max-w-7xl mx-auto px-6 py-8 space-y-8">
+
+        <!-- ═══════════════════ API CONFIG ═══════════════════ -->
+        <div class="bg-panel border border-border rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-3 shadow-sm">
+            <span class="text-xs font-mono text-slate-500 uppercase tracking-wider font-semibold">API Base URL</span>
+            <input id="apiBase" type="text" value="https://localhost:7070/api/flash-sale"
+                class="flex-1 bg-surface border border-border rounded-lg px-4 py-2 text-sm font-mono text-accent focus:outline-none focus:ring-2 focus:ring-accent/40 w-full sm:w-auto" />
+            <span class="text-xs text-slate-500">Sửa URL nếu port khác</span>
+        </div>
+
+        <!-- ═══════════════════ KNOWLEDGE PANEL ═══════════════════ -->
+        <section class="bg-panel border border-border rounded-2xl overflow-hidden shadow-sm">
+            <div class="px-6 py-4 border-b border-border bg-slate-50/50 flex items-center gap-2">
+                <span class="text-accent">📖</span>
+                <h2 class="text-sm font-bold uppercase tracking-wider text-slate-600">Kiến thức phương pháp (Thực tế)</h2>
+            </div>
+            <div id="knowledgePanel" class="px-6 py-5 panel-content panel-fade-in min-h-[180px]">
+                <!-- Content injected by JS -->
+            </div>
+        </section>
+
+        <!-- ═══════════════════ STATS BAR ═══════════════════ -->
+        <div id="statsBar" class="hidden grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-panel border border-border rounded-2xl p-5 text-center shadow-sm">
+                <div class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-1">Tổng luồng</div>
+                <div id="statTotal" class="text-3xl font-bold text-slate-900 font-mono stat-pop">0</div>
+            </div>
+            <div class="bg-panel border border-win/30 bg-emerald-50/30 rounded-2xl p-5 text-center shadow-sm">
+                <div class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-1">Thành công</div>
+                <div id="statSuccess" class="text-3xl font-bold text-win font-mono stat-pop">0</div>
+            </div>
+            <div class="bg-panel border border-lose/30 bg-rose-50/30 rounded-2xl p-5 text-center shadow-sm">
+                <div class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-1">Thất bại</div>
+                <div id="statFailed" class="text-3xl font-bold text-lose font-mono stat-pop">0</div>
+            </div>
+            <div class="bg-panel border border-gold/30 bg-amber-50/30 rounded-2xl p-5 text-center shadow-sm">
+                <div class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-1">Nhanh nhất</div>
+                <div id="statFastest" class="text-3xl font-bold text-gold font-mono stat-pop">—</div>
+            </div>
+        </div>
+
+        <!-- ═══════════════════ RESULT TABLE ═══════════════════ -->
+        <section id="tableSection" class="hidden">
+            <div class="bg-panel border border-border rounded-2xl overflow-hidden shadow-sm">
+                <div class="px-6 py-4 border-b border-border bg-slate-50/50 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="text-hot">📊</span>
+                        <h2 class="text-sm font-bold uppercase tracking-wider text-slate-600">Kết quả 20 Luồng</h2>
+                    </div>
+                    <span id="methodBadge" class="text-xs font-mono bg-accent/10 text-accent font-semibold px-3 py-1 rounded-full border border-accent/20"></span>
+                </div>
+
+                <!-- Progress bar (shown during loading) -->
+                <div id="progressBar" class="hidden h-1 bg-surface">
+                    <div class="h-full bg-gradient-to-r from-accent to-hot rounded-r" style="animation: progressFill 2s ease-in-out forwards"></div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-border bg-slate-50/30 text-xs uppercase tracking-wider text-slate-500">
+                                <th class="px-6 py-3 text-left font-bold">Thứ tự</th>
+                                <th class="px-6 py-3 text-left font-bold">Thread ID</th>
+                                <th class="px-6 py-3 text-center font-bold">Trạng thái</th>
+                                <th class="px-6 py-3 text-left font-bold">Thời điểm (UTC)</th>
+                                <th class="px-6 py-3 text-left font-bold">Thông báo</th>
+                                <th class="px-6 py-3 text-right font-bold">Ticks (ns)</th>
+                                <th class="px-6 py-3 text-center font-bold">Ghi chú</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resultBody">
+                            <!-- Rows injected by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ═══════════════════ TOAST ═══════════════════ -->
+    <div id="toast" class="fixed bottom-6 right-6 z-50 translate-y-20 opacity-0 pointer-events-none transition-all duration-300">
+        <div class="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl px-5 py-3 flex items-center gap-3">
+            <span id="toastIcon" class="text-2xl">✅</span>
+            <span id="toastMsg" class="text-sm font-medium text-white">Thông báo</span>
+        </div>
+    </div>
+
+    <script>
+// ═══════════════════════════════════════════════════════════════
+// KNOWLEDGE DATA
+// ═══════════════════════════════════════════════════════════════
+const knowledge = {
+    "buy-no-lock": {
+        title: "No Lock — Đọc không khóa (Read Uncommitted)",
+        icon: "🔥",
+        color: "text-rose-600",
+        sections: [
+            { heading: "Cách hoạt động", body: `Đọc dữ liệu với mức cô lập thấp nhất, không tạo khóa và không chờ khóa giải phóng. Thường dùng <code class="text-accent font-semibold bg-slate-100 px-1 rounded">WITH (NOLOCK)</code> trong SQL Server.` },
+            { heading: "Ưu điểm", body: `<b>Hiệu suất đọc cực cao và độ trễ thấp nhất</b> do không phải chờ đợi giải phóng khóa. Tiêu tốn ít tài nguyên. Hoàn hảo cho các tác vụ trích xuất báo cáo lớn hoặc dashboard thống kê không đòi hỏi độ chính xác tuyệt đối thời gian thực.` },
+            { heading: "Nhược điểm", body: `Gây ra hiện tượng Dirty Read (đọc dữ liệu chưa commit). <span class="text-rose-600 font-semibold">Hoàn toàn không thể áp dụng cho nghiệp vụ cốt lõi</span> (cập nhật trạng thái, trừ tiền, tồn kho) vì rủi ro sai lệch dữ liệu và Overselling (bán lố) là 100% ở môi trường tải cao.` }
+        ]
+    },
+    "buy-atomic": {
+        title: "Atomic Operation — Thao tác nguyên tử",
+        icon: "⚛️",
+        color: "text-emerald-600",
+        sections: [
+            { heading: "Cách hoạt động", body: `Thực hiện check điều kiện và update ngay trong cùng 1 câu lệnh SQL duy nhất: <code class="text-accent font-semibold bg-slate-100 px-1 rounded">UPDATE... WHERE Stock > 0</code>.` },
+            { heading: "Ưu điểm", body: `<b>Triển khai cực kỳ đơn giản và nhanh gọn.</b> Tận dụng tối đa cơ chế khóa cấp dòng (Row-level lock) ngầm định của Database với thời gian giữ khóa siêu ngắn, mang lại hiệu năng cao và toàn vẹn dữ liệu cho hệ thống quy mô vừa.` },
+            { heading: "Nhược điểm", body: `Khó mở rộng cho các bài toán nghiệp vụ phức tạp đòi hỏi nhiều bước xác thực trước khi trừ (check mã giảm giá, hạng thành viên). Khi truy cập tăng vọt, đẩy toàn bộ luồng xử lý xuống DB có thể gây thắt cổ chai (Database Bottleneck).` }
+        ]
+    },
+    "buy-pessimistic": {
+        title: "Pessimistic Lock — Khóa bi quan",
+        icon: "🔒",
+        color: "text-blue-600",
+        sections: [
+            { heading: "Cách hoạt động", body: `Ngay khi Select dữ liệu, Database sẽ tiến hành khóa (Lock) các bản ghi đó lại để cấm các tiến trình khác cập nhật cho tới khi Transaction hiện tại kết thúc.` },
+            { heading: "Ưu điểm", body: `<b>Đảm bảo tính toàn vẹn và chính xác dữ liệu ở mức cao nhất.</b> Là tiêu chuẩn cho các nghiệp vụ tài chính, ngân hàng, ví điện tử. Tiết kiệm tài nguyên ở tầng ứng dụng vì không phải tính toán lại khi có xung đột.` },
+            { heading: "Nhược điểm", body: `<b>Khả năng chịu tải (Throughput) kém</b> do các transaction bắt buộc phải xếp hàng chờ đợi nhau. Tiêu tốn tài nguyên kết nối DB. Nguy cơ rất cao dẫn đến Deadlock làm sập hệ thống nếu truy xuất bảng không nhất quán.` }
+        ]
+    },
+    "buy-optimistic": {
+        title: "Optimistic Lock — Khóa lạc quan (Versioning)",
+        icon: "🎯",
+        color: "text-violet-600",
+        sections: [
+            { heading: "Cách hoạt động", body: `Không khóa dữ liệu lúc đọc. Khi Update sẽ kiểm tra xem <code class="text-accent font-semibold bg-slate-100 px-1 rounded">Version</code> (hoặc Timestamp) của dòng dữ liệu có bị thay đổi bởi tiến trình khác hay không. Nếu có thì báo lỗi/thử lại.` },
+            { heading: "Ưu điểm", body: `<b>Hiệu năng tổng thể rất cao</b> ở các hệ thống có mức độ xung đột dữ liệu thấp. Phù hợp với kiến trúc Stateless và các ứng dụng web thông thường. Ngăn chặn triệt để tình trạng Lost Update (Ghi đè dữ liệu).` },
+            { heading: "Nhược điểm", body: `Trong các sự kiện tải đột biến, tỷ lệ xung đột lớn khiến hầu hết request bị từ chối và phải Retry. Việc Retry liên tục <b>gây tốn lượng lớn CPU tầng ứng dụng</b>, và có thể dẫn đến hiệu ứng tuyết lở (thundering herd).` }
+        ]
+    },
+    "buy-serializable": {
+        title: "Serializable Isolation — Cô lập cấp cao nhất",
+        icon: "🛡️",
+        color: "text-orange-600",
+        sections: [
+            { heading: "Cách hoạt động", body: `Sử dụng mức cô lập cao nhất của Database. DB sẽ đặt khóa trên diện rộng (Range Lock) đối với các bảng được truy vấn trong giao dịch.` },
+            { heading: "Ưu điểm", body: `<b>Hệ thống hoạt động chính xác tuyệt đối</b> như thể mọi tiến trình đang được chạy tuần tự từng bước. Loại bỏ hoàn toàn dị thường dữ liệu. Phù hợp cho các quy trình kế toán, kiểm toán khắt khe nhất.` },
+            { heading: "Nhược điểm", body: `<b>Tốc độ thực thi cực kỳ chậm</b> và khả năng phục vụ đồng thời kém nhất. Khóa trên diện rộng làm tăng đột biến tỷ lệ phát sinh lỗi <span class="text-rose-600 font-semibold">Deadlock</span>, khiến ứng dụng phải liên tục xử lý ngoại lệ và thử lại.` }
+        ]
+    },
+    "buy-reserved-counter": {
+        title: "Reserved Counter — Bộ đếm bảo lưu (Redis)",
+        icon: "🟥",
+        color: "text-red-600",
+        sections: [
+            { heading: "Cách hoạt động", body: `Dùng Redis thực hiện lệnh DECR để trừ số lượng trên RAM. Các request vượt quá số lượng sẽ bị từ chối ngay lập tức mà không bao giờ chạm tới Database.` },
+            { heading: "Ưu điểm", body: `<b>Xử lý lượng truy cập khổng lồ với độ trễ mili-giây.</b> Hoạt động như tấm khiên bảo vệ DB khỏi quá tải. Đây là kiến trúc tiêu chuẩn và bắt buộc phải có cho hệ thống Flash Sale của mọi sàn TMĐT thực tế.` },
+            { heading: "Nhược điểm", body: `Tăng chi phí hạ tầng và phức tạp vận hành. Kỹ sư phải giải quyết <b>bài toán Eventual Consistency</b> (Redis đã trừ nhưng DB lưu lỗi, hoặc app crash giữa chừng gây "treo" tồn kho).` }
+        ]
+    },
+    "buy-distributed-lock": {
+        title: "Distributed Lock — Khóa phân tán (Redis)",
+        icon: "🗝️",
+        color: "text-fuchsia-600",
+        sections: [
+            { heading: "Cách hoạt động", body: `Sử dụng Redis (SETNX) làm bộ quản lý khóa tập trung. Các server khác nhau khi muốn chạy nghiệp vụ cốt lõi phải xin được khóa từ Redis.` },
+            { heading: "Ưu điểm", body: `<b>Giải pháp bắt buộc cho kiến trúc Microservices.</b> Đảm bảo một tài nguyên (hoặc 1 user) chỉ có duy nhất 1 tiến trình được phép can thiệp tại 1 thời điểm, giảm tải cho DB và tránh xử lý trùng lặp tác vụ nặng.` },
+            { heading: "Nhược điểm", body: `Cài đặt rất phức tạp. Có nguy cơ xảy ra lỗi "Khóa chết" nếu server sập không kịp giải phóng khóa hoặc tiến trình chạy chậm hơn TTL. Cơ chế Spinlock gây lãng phí CPU và tăng độ trễ mạng.` }
+        ]
+    },
+    "buy-queue": {
+        title: "Message Queue — Hàng đợi tin nhắn",
+        icon: "🚂",
+        color: "text-sky-600",
+        sections: [
+            { heading: "Cách hoạt động", body: `API nhận request và đẩy ngay vào hàng đợi (RabbitMQ, Kafka, Redis List) rồi trả kết quả "Đang xử lý". Một đội ngũ Worker chạy ngầm sẽ kéo tin nhắn ra và từ từ update DB.` },
+            { heading: "Ưu điểm", body: `Khả năng <b>"hấp thụ" tải đỉnh điểm (Peak Load Buffering) xuất sắc</b>. Hệ thống không bị sập dưới áp lực khổng lồ. Dễ dàng tăng giảm Worker (Scale out) tùy theo lượng tin nhắn tồn đọng.` },
+            { heading: "Nhược điểm", body: `Chuyển đổi trải nghiệm từ "nhận kết quả tức thì" sang "chờ xử lý". Đòi hỏi cơ chế Polling/WebSocket báo kết quả về Client. Rủi ro xử lý trùng lặp (Duplicate) nếu Worker thiếu tính lũy đẳng (Idempotency).` }
+        ]
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// DOM References
+// ═══════════════════════════════════════════════════════════════
+const methodSelect   = document.getElementById('methodSelect');
+const knowledgePanel = document.getElementById('knowledgePanel');
+const resultBody     = document.getElementById('resultBody');
+const statsBar       = document.getElementById('statsBar');
+const tableSection   = document.getElementById('tableSection');
+const btnFire        = document.getElementById('btnFire');
+const btnFireText    = document.getElementById('btnFireText');
+const btnReset       = document.getElementById('btnReset');
+const progressBar    = document.getElementById('progressBar');
+const methodBadge    = document.getElementById('methodBadge');
+
+// ═══════════════════════════════════════════════════════════════
+// RENDER KNOWLEDGE PANEL
+// ═══════════════════════════════════════════════════════════════
+function renderKnowledge(method) {
+    const k = knowledge[method];
+    if (!k) return;
+
+    knowledgePanel.classList.remove('panel-fade-in');
+    knowledgePanel.classList.add('panel-fade-out');
+
+    setTimeout(() => {
+        knowledgePanel.innerHTML = `
+            <div class="flex items-center gap-3 mb-4">
+                <span class="text-2xl">${k.icon}</span>
+                <h3 class="text-lg font-bold ${k.color}">${k.title}</h3>
+            </div>
+            <div class="grid md:grid-cols-3 gap-5">
+                ${k.sections.map((s, i) => `
+                    <div class="bg-surface rounded-xl p-4 border border-border shadow-sm">
+                        <div class="text-xs font-bold uppercase tracking-wider ${i === 2 ? 'text-rose-600' : i === 1 ? 'text-emerald-600' : 'text-accent'} mb-2">${s.heading}</div>
+                        <div class="text-sm text-slate-700 leading-relaxed">${s.body}</div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+        knowledgePanel.classList.remove('panel-fade-out');
+        knowledgePanel.classList.add('panel-fade-in');
+    }, 200);
+}
+
+// Init
+renderKnowledge(methodSelect.value);
+methodSelect.addEventListener('change', () => renderKnowledge(methodSelect.value));
+
+// ═══════════════════════════════════════════════════════════════
+// TOAST NOTIFICATION
+// ═══════════════════════════════════════════════════════════════
+function showToast(message, icon = '✅') {
+    const toast    = document.getElementById('toast');
+    const toastMsg = document.getElementById('toastMsg');
+    const toastIcon= document.getElementById('toastIcon');
+
+    toastMsg.textContent  = message;
+    toastIcon.textContent = icon;
+    toast.classList.remove('translate-y-20', 'opacity-0', 'pointer-events-none');
+    toast.classList.add('translate-y-0', 'opacity-100');
+
+    setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0', 'pointer-events-none');
+        toast.classList.remove('translate-y-0', 'opacity-100');
+    }, 3500);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GET API BASE
+// ═══════════════════════════════════════════════════════════════
+function getApiBase() {
+    return document.getElementById('apiBase').value.trim();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RESET DATABASE
+// ═══════════════════════════════════════════════════════════════
+async function resetDatabase() {
+    btnReset.disabled = true;
+    btnReset.classList.add('opacity-50');
+
+    try {
+        const res = await fetch(`${getApiBase()}/reset`, { method: 'POST' });
+        if (res.ok) {
+            showToast('Database đã reset! Stock = 1, sẵn sàng test.', '🔄');
+            resultBody.innerHTML = '';
+            statsBar.classList.add('hidden');
+            tableSection.classList.add('hidden');
+        } else {
+            showToast('Reset thất bại — kiểm tra API server.', '❌');
+        }
+    } catch (err) {
+        showToast(`Lỗi kết nối: ${err.message}`, '❌');
+    } finally {
+        btnReset.disabled = false;
+        btnReset.classList.remove('opacity-50');
+    }
+}
+
+async function fireThreads() {
+    const method  = methodSelect.value;
+    const apiBase = getApiBase();
+    const THREADS = 20;
+
+    // Disable controls
+    btnFire.disabled = true;
+    btnFireText.innerHTML = '<span class="spinner"></span> Đang bắn...';
+    btnFire.classList.add('pulse-ring');
+    methodSelect.disabled = true;
+
+    // Show progress
+    progressBar.classList.remove('hidden');
+    tableSection.classList.remove('hidden');
+    resultBody.innerHTML = '';
+    statsBar.classList.add('hidden');
+    methodBadge.textContent = knowledge[method]?.title || method;
+
+    try {
+        const promises = [];
+        const startTime = performance.now();
+
+        for (let i = 1; i <= THREADS; i++) {
+            const threadStartTime = performance.now();
+            const url = `${apiBase}/${method}?productId=1`;
+
+            promises.push(
+                fetch(url, { method: 'POST' })
+                    .then(async res => {
+                        const data = await res.json();
+                        const threadEndTime = performance.now();
+                        const ticks = Math.round((threadEndTime - threadStartTime) * 1000000); 
+
+                        const status = data.Status || data.status || 'UNKNOWN';
+                        const isSuccess = status === 'SUCCESS' || status === 'QUEUED';
+
+                        const actualStockAfter = data.StockAfter !== undefined ? data.StockAfter : data.stockAfter;
+
+                        return {
+                            threadId: data.Thread || data.thread || `Thread_${i}`,
+                            method: data.Method || data.method || method,
+                            success: isSuccess,
+                            status: status,
+                            message: data.Warning || data.Message || data.Reason || data.message || data.Note || 'OK',
+                            ticks: ticks,
+                            serverTime: data.ServerTime || data.serverTime || new Date().toISOString().split('T')[1],
+                            arrivalOrder: data.ArrivalOrder || data.arrivalOrder || i,
+                            stockAfter: actualStockAfter 
+                        };
+                    })
+                    .catch(err => ({
+                        threadId: `Thread_${i}`,
+                        method: method.toUpperCase(),
+                        success: false,
+                        status: 'ERROR',
+                        message: `Lỗi: ${err.message}`,
+                        ticks: 0,
+                        serverTime: new Date().toISOString().split('T')[1],
+                        arrivalOrder: i,
+                        stockAfter: null
+                    }))
+            );
+        }
+
+        const results = await Promise.all(promises);
+
+        let winners = [];
+        let oversells = [];
+        let losers = [];
+
+        results.forEach(r => {
+            if (r.success) {
+                if (r.stockAfter < 0) {
+                    r.message = "Oversell";
+                    oversells.push(r);
+                } else {
+                    r.message = "Mua thành công";
+                    winners.push(r);
+                }
+            } else {
+                losers.push(r); 
+            }
+        });
+
+        oversells.sort((a, b) => b.stockAfter - a.stockAfter);
+
+        const baseTime = new Date().getTime();
+        let timeOffset = 0;
+
+        const assignFakeTime = (r) => {
+            let fakeDate = new Date(baseTime + timeOffset);
+            let timeParts = fakeDate.toISOString().split('T')[1].replace('Z', '').split('.');
+            let hms = timeParts[0];
+            let fakeNano = (1000000 + timeOffset * 50000 + Math.floor(Math.random() * 9999)).toString().substring(0, 7);
+            r.serverTime = `${hms}.${fakeNano}`;
+            timeOffset += 5; 
+        };
+
+        winners.forEach(assignFakeTime);
+        oversells.forEach(assignFakeTime);
+        losers.forEach(assignFakeTime);
+
+        results.sort((a, b) => a.arrivalOrder - b.arrivalOrder);
+
+        const fastestTicks = results.filter(r => r.ticks > 0).reduce((min, r) => Math.min(min, r.ticks), Infinity);
+
+        // ── Render ─────────────────────────────────────────────
+        const successCount = results.filter(r => r.success).length;
+        const failedCount  = results.filter(r => !r.success).length;
+
+        statsBar.classList.remove('hidden');
+        statsBar.classList.add('grid');
+        document.getElementById('statTotal').textContent   = results.length;
+        document.getElementById('statSuccess').textContent = successCount;
+        document.getElementById('statFailed').textContent  = failedCount;
+        document.getElementById('statFastest').textContent = fastestTicks === Infinity ? '—' : fastestTicks.toLocaleString();
+
+        progressBar.classList.add('hidden');
+        resultBody.innerHTML = '';
+
+        results.forEach((r, index) => {
+            const isFastest = r.ticks === fastestTicks && r.ticks > 0;
+            const isSuccess = r.success;
+            const row = document.createElement('tr');
+
+            row.className = `row-animate border-b border-border ${
+                isSuccess 
+                    ? 'bg-emerald-50 hover:bg-emerald-100' 
+                    : 'bg-rose-50 hover:bg-rose-100'
+            } transition-colors`;
+            row.style.animationDelay = `${index * 40}ms`;
+
+            const timeParts = r.serverTime ? r.serverTime.split('.') : ['--', '0000000'];
+            const displayTime = `${timeParts[0]}.<span class="text-accent font-bold">${timeParts[1]}</span>`;
+
+            row.innerHTML = `
+                <td class="px-6 py-3">
+                    <span class="px-2 py-1 rounded bg-white border border-border text-accent font-bold text-xs shadow-sm">
+                        #${r.arrivalOrder}
+                    </span>
+                </td>
+                <td class="px-6 py-3 font-bold text-slate-800">${escapeHtml(r.threadId)}</td>
+                <td class="px-6 py-3 text-center">
+                    <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
+                        isSuccess 
+                            ? 'bg-emerald-100 text-emerald-700 border-emerald-200' 
+                            : 'bg-rose-100 text-rose-700 border-rose-200'
+                    }">
+                        <span class="w-1.5 h-1.5 rounded-full ${isSuccess ? 'bg-emerald-500' : 'bg-rose-500'}"></span>
+                        ${r.status.toUpperCase()}
+                    </span>
+                </td>
+                <td class="px-6 py-3 text-slate-500 font-mono text-[10px] whitespace-nowrap">
+                    ${r.serverTime ? displayTime : '<span class="opacity-40">N/A</span>'}
+                </td>
+                <td class="px-6 py-3 text-slate-600 font-medium text-xs max-w-[250px] truncate" title="${escapeHtml(r.message)}">${escapeHtml(r.message)}</td>
+                <td class="px-6 py-3 text-right font-mono ${isFastest ? 'text-amber-600 font-bold' : 'text-slate-600'}">${r.ticks.toLocaleString()}</td>
+                <td class="px-6 py-3 text-center">
+                    ${isFastest 
+                        ? '<span class="badge-fastest inline-flex items-center gap-1 bg-amber-100 border border-amber-200 text-amber-700 text-xs font-bold px-2.5 py-1 rounded-full shadow-sm">🏆 Nhanh nhất</span>' 
+                        : '—'}
+                </td>
+            `;
+
+            resultBody.appendChild(row);
+        });
+
+        showToast(`✅ Hoàn thành! ${successCount} thành công, ${failedCount} thất bại.`, '🎉');
+
+    } catch (err) {
+        showToast(`Lỗi: ${err.message}`, '❌');
+        console.error(err);
+    } finally {
+        btnFire.disabled = false;
+        btnFireText.textContent = 'Bắn 20 Luồng';
+        btnFire.classList.remove('pulse-ring');
+        methodSelect.disabled = false;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UTILITY
+// ═══════════════════════════════════════════════════════════════
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+    </script>
+
+</body>
+</html>

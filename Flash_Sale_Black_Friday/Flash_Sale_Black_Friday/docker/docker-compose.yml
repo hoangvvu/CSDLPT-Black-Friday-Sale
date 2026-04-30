@@ -1,0 +1,95 @@
+﻿version: '3.8'
+
+services:
+
+  sql-node1-master:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sql-node1-master
+    user: root
+    environment:
+      MSSQL_SA_PASSWORD: "Anhkhoa@020305"
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "Developer"
+      MSSQL_MEMORY_LIMIT_MB: "1024"
+    ports:
+      - "1436:1433"
+    volumes:
+      - node1_master_data:/var/opt/mssql/data
+    networks:
+      - flashsale-net
+
+  sql-node1-slave:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sql-node1-slave
+    user: root
+    environment:
+      MSSQL_SA_PASSWORD: "Anhkhoa@020305"
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "Developer"
+      MSSQL_MEMORY_LIMIT_MB: "1024"
+    ports:
+      - "1434:1433"
+    volumes:
+      - node1_slave_data:/var/opt/mssql/data
+    networks:
+      - flashsale-net
+    depends_on:
+      - sql-node1-master
+
+  sql-node2:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sql-node2
+    user: root
+    environment:
+      MSSQL_SA_PASSWORD: "Anhkhoa@020305"
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "Developer"
+      MSSQL_MEMORY_LIMIT_MB: "1024"
+    ports:
+      - "1435:1433"
+    volumes:
+      - node2_data:/var/opt/mssql/data
+    networks:
+      - flashsale-net
+
+  db-init:
+    image: mcr.microsoft.com/mssql-tools:latest
+    container_name: db-init
+    depends_on:
+      - sql-node1-master
+      - sql-node1-slave
+      - sql-node2
+    networks:
+      - flashsale-net
+    volumes:
+      - ./node1-master/init.sql:/scripts/node1-master.sql
+      - ./node1-slave/init.sql:/scripts/node1-slave.sql
+      - ./node2/init.sql:/scripts/node2.sql
+    command: >
+      bash -c "
+        echo '⏳ Đợi SQL Server khởi động...' &&
+        sleep 40 &&
+        /opt/mssql-tools/bin/sqlcmd -S sql-node1-master -U sa -P 'Anhkhoa@020305' -i /scripts/node1-master.sql &&
+        echo '✅ Master OK' &&
+        /opt/mssql-tools/bin/sqlcmd -S sql-node1-slave -U sa -P 'Anhkhoa@020305' -i /scripts/node1-slave.sql &&
+        echo '✅ Slave OK' &&
+        /opt/mssql-tools/bin/sqlcmd -S sql-node2 -U sa -P 'Anhkhoa@020305' -i /scripts/node2.sql &&
+        echo '✅ Node2 OK'
+      "
+
+  redis-cache:
+    image: redis:alpine
+    container_name: redis-cache
+    ports:
+      - "6379:6379"
+    networks:
+      - flashsale-net
+    command: redis-server --save 60 1 --loglevel warning
+
+volumes:
+  node1_master_data:
+  node1_slave_data:
+  node2_data:
+
+networks:
+  flashsale-net:

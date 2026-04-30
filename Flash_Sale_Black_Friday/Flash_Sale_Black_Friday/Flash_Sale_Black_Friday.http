@@ -1,0 +1,6 @@
+@Flash_Sale_Black_Friday_HostAddress = http://localhost:5080
+
+GET {{Flash_Sale_Black_Friday_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
