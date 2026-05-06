@@ -9,12 +9,16 @@ public class RedisQueueWorker : BackgroundService
 {
     private readonly IConnectionMultiplexer _redisConn;
     private readonly string _masterConn;
+    private readonly string _oddConn;    
+    private readonly string _evenConn;
     private readonly ILogger<RedisQueueWorker> _logger;
 
     public RedisQueueWorker(IConnectionMultiplexer redisConn, IConfiguration config, ILogger<RedisQueueWorker> logger)
     {
         _redisConn = redisConn;
-        _masterConn = config.GetConnectionString("MasterDb") ?? "";
+        _masterConn = config.GetConnectionString("Master") ?? "";
+        _oddConn = config.GetConnectionString("Node_Odd") ?? "";   // thêm
+        _evenConn = config.GetConnectionString("Node_Even") ?? "";  // thêm
         _logger = logger;
     }
 
@@ -53,40 +57,42 @@ public class RedisQueueWorker : BackgroundService
         }
     }
 
-    /// <summary>
-    /// Xử lý đơn hàng bằng Atomic Update. 
-    /// Nhanh và an toàn 100% không bao giờ Oversell.
-    /// </summary>
     private async Task ProcessOrderAtomic(int productId, string threadId)
     {
         try
         {
-            await using var con = new SqlConnection(_masterConn);
-            await con.OpenAsync();
+            // Master: trừ stock
+            await using var masterCon = new SqlConnection(_masterConn);
+            await masterCon.OpenAsync();
 
-            // 🟢 TỐI ƯU: Không cần SELECT kiểm tra trước. Đập thẳng lệnh UPDATE kiểm tra Stock > 0.
-            // Nếu hết hàng thì UPDATE trả về 0 dòng, snap sẽ bị null.
-            var snap = await con.QueryFirstOrDefaultAsync<StockSnapshot>(
+            var snap = await masterCon.QueryFirstOrDefaultAsync<StockSnapshot>(
                 @"UPDATE Products 
-                  SET Stock = Stock - 1, UpdatedAt = SYSUTCDATETIME()
-                  OUTPUT INSERTED.Stock, INSERTED.UpdatedAt
-                  WHERE ProductId = @ProductId AND Stock > 0",
+              SET Stock = Stock - 1, UpdatedAt = SYSUTCDATETIME()
+              OUTPUT INSERTED.Stock, INSERTED.UpdatedAt
+              WHERE ProductId = @ProductId AND Stock > 0",
                 new { ProductId = productId });
 
-            if (snap != null) // Kho > 0 và đã trừ kho thành công
+            if (snap != null)
             {
-                // Ghi nhận đơn hàng thành công
-                await con.ExecuteAsync(
-                    @"INSERT INTO Orders (ProductId, ThreadId, Quantity, UnitPrice, Status, Method)
-                      SELECT @ProductId, @ThreadId, 1, SalePrice, 'SUCCESS', 'QUEUE' 
-                      FROM Products WHERE ProductId = @ProductId",
-                    new { ProductId = productId, ThreadId = threadId });
+                // Lấy SalePrice từ Master trước
+                var price = await masterCon.QueryFirstAsync<decimal>(
+                    "SELECT SalePrice FROM dbo.Products WHERE ProductId = @ProductId",
+                    new { ProductId = productId });
+
+                // INSERT vào đúng shard với giá đã lấy được
+                var shardConnStr = productId % 2 == 1 ? _oddConn : _evenConn;
+                await using var shardCon = new SqlConnection(shardConnStr);
+                await shardCon.OpenAsync();
+
+                await shardCon.ExecuteAsync(
+                    @"INSERT INTO dbo.Orders (ProductId, ThreadId, Quantity, UnitPrice, Status, Method)
+          VALUES (@ProductId, @ThreadId, 1, @Price, 'SUCCESS', 'QUEUE')",
+                    new { ProductId = productId, ThreadId = threadId, Price = price });
 
                 _logger.LogInformation("✅ Worker trừ kho OK cho {ThreadId}. Kho còn: {Stock}", threadId, snap.Stock);
             }
             else
             {
-                // Đơn hàng văng ra do hết hàng
                 _logger.LogWarning("❌ Worker rớt đơn của {ThreadId} do HẾT HÀNG.", threadId);
             }
         }

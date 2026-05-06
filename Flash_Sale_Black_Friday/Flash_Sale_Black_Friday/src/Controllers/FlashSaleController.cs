@@ -801,7 +801,7 @@ namespace FlashSale.Controllers
                         ArrivalOrder = arrivalOrder,
                         ServerTime = serverTime,
                         Reason = "Out of stock",
-                        Message = "Stock không đủ, request bị từ chối trước khi vào queue.",
+                        Message = "Request rejected",
                         Note = "Queue architecture với pre-check: chỉ request hợp lệ mới được vào queue."
                     });
                 }
