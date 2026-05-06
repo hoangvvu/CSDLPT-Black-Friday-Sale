@@ -452,7 +452,7 @@ namespace FlashSale.Controllers
                     price = r.GetDecimal(1);
                 }
 
-                await Task.Delay(40);   // kéo dài transaction để chọc lỗi 1205
+                await Task.Delay(24);   // kéo dài transaction để chọc lỗi 1205
 
                 if (stockBefore <= 0)
                 {

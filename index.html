@@ -225,6 +225,7 @@
         </div>
 
         <!-- ═══════════════════ RESULT TABLE ═══════════════════ -->
+        <!-- ═══════════════════ RESULT TABLE ═══════════════════ -->
         <section id="tableSection" class="hidden">
             <div class="bg-panel border border-border rounded-2xl overflow-hidden shadow-sm">
                 <div class="px-6 py-4 border-b border-border bg-slate-50/50 flex items-center justify-between">
@@ -235,28 +236,48 @@
                     <span id="methodBadge" class="text-xs font-mono bg-accent/10 text-accent font-semibold px-3 py-1 rounded-full border border-accent/20"></span>
                 </div>
 
-                <!-- Progress bar (shown during loading) -->
+                <!-- Progress bar -->
                 <div id="progressBar" class="hidden h-1 bg-surface">
                     <div class="h-full bg-gradient-to-r from-accent to-hot rounded-r" style="animation: progressFill 2s ease-in-out forwards"></div>
                 </div>
 
-                <div class="overflow-x-auto">
-                    <table class="w-full text-sm">
-                        <thead>
-                            <tr class="border-b border-border bg-slate-50/30 text-xs uppercase tracking-wider text-slate-500">
-                                <th class="px-6 py-3 text-left font-bold">Thứ tự</th>
-                                <th class="px-6 py-3 text-left font-bold">Thread ID</th>
-                                <th class="px-6 py-3 text-center font-bold">Trạng thái</th>
-                                <th class="px-6 py-3 text-left font-bold">Thời điểm (UTC)</th>
-                                <th class="px-6 py-3 text-left font-bold">Thông báo</th>
-                                <th class="px-6 py-3 text-right font-bold">Ticks (ns)</th>
-                                <th class="px-6 py-3 text-center font-bold">Ghi chú</th>
-                            </tr>
-                        </thead>
-                        <tbody id="resultBody">
-                            <!-- Rows injected by JS -->
-                        </tbody>
-                    </table>
+                <!-- Lưới 2 cột chứa 2 bảng -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-0 divide-y lg:divide-y-0 lg:divide-x divide-border">
+                    <!-- Bảng 1 (Thread 1-10) -->
+                    <div class="overflow-x-auto p-4">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="border-b border-border bg-slate-50/30 text-[11px] uppercase tracking-wider text-slate-500">
+                                    <th class="px-3 py-2 text-left font-bold">Thứ tự</th>
+                                    <th class="px-3 py-2 text-left font-bold">Thread</th>
+                                    <th class="px-3 py-2 text-center font-bold">Status</th>
+                                    <th class="px-3 py-2 text-left font-bold">Thông báo</th>
+                                    <th class="px-3 py-2 text-right font-bold">Ticks (ns)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resultBody1">
+                                <!-- JS Inject 1-10 -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Bảng 2 (Thread 11-20) -->
+                    <div class="overflow-x-auto p-4">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="border-b border-border bg-slate-50/30 text-[11px] uppercase tracking-wider text-slate-500">
+                                    <th class="px-3 py-2 text-left font-bold">Thứ tự</th>
+                                    <th class="px-3 py-2 text-left font-bold">Thread</th>
+                                    <th class="px-3 py-2 text-center font-bold">Status</th>
+                                    <th class="px-3 py-2 text-left font-bold">Thông báo</th>
+                                    <th class="px-3 py-2 text-right font-bold">Ticks (ns)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resultBody2">
+                                <!-- JS Inject 11-20 -->
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </section>
@@ -363,7 +384,8 @@ const knowledge = {
 // ═══════════════════════════════════════════════════════════════
 const methodSelect   = document.getElementById('methodSelect');
 const knowledgePanel = document.getElementById('knowledgePanel');
-const resultBody     = document.getElementById('resultBody');
+const resultBody1    = document.getElementById('resultBody1');
+const resultBody2    = document.getElementById('resultBody2');
 const statsBar       = document.getElementById('statsBar');
 const tableSection   = document.getElementById('tableSection');
 const btnFire        = document.getElementById('btnFire');
@@ -443,7 +465,11 @@ async function resetDatabase() {
         const res = await fetch(`${getApiBase()}/reset`, { method: 'POST' });
         if (res.ok) {
             showToast('Database đã reset! Stock = 1, sẵn sàng test.', '🔄');
-            resultBody.innerHTML = '';
+            
+            // Đã sửa: Xóa dữ liệu của cả 2 bảng mới thay vì bảng cũ
+            resultBody1.innerHTML = '';
+            resultBody2.innerHTML = '';
+            
             statsBar.classList.add('hidden');
             tableSection.classList.add('hidden');
         } else {
@@ -471,7 +497,8 @@ async function fireThreads() {
     // Show progress
     progressBar.classList.remove('hidden');
     tableSection.classList.remove('hidden');
-    resultBody.innerHTML = '';
+    resultBody1.innerHTML = ''; // Clear bảng 1
+    resultBody2.innerHTML = ''; // Clear bảng 2
     statsBar.classList.add('hidden');
     methodBadge.textContent = knowledge[method]?.title || method;
 
@@ -492,7 +519,6 @@ async function fireThreads() {
 
                         const status = data.Status || data.status || 'UNKNOWN';
                         const isSuccess = status === 'SUCCESS' || status === 'QUEUED';
-
                         const actualStockAfter = data.StockAfter !== undefined ? data.StockAfter : data.stockAfter;
 
                         return {
@@ -500,7 +526,7 @@ async function fireThreads() {
                             method: data.Method || data.method || method,
                             success: isSuccess,
                             status: status,
-                            message: data.Warning || data.Message || data.Reason || data.message || data.Note || 'OK',
+                            message: data.Warning || data.Message || data.Reason || data.message || data.reason || data.Note || 'OK',
                             ticks: ticks,
                             serverTime: data.ServerTime || data.serverTime || new Date().toISOString().split('T')[1],
                             arrivalOrder: data.ArrivalOrder || data.arrivalOrder || i,
@@ -559,6 +585,7 @@ async function fireThreads() {
         oversells.forEach(assignFakeTime);
         losers.forEach(assignFakeTime);
 
+        // Sắp xếp lại theo thứ tự API nhận
         results.sort((a, b) => a.arrivalOrder - b.arrivalOrder);
 
         const fastestTicks = results.filter(r => r.ticks > 0).reduce((min, r) => Math.min(min, r.ticks), Infinity);
@@ -575,9 +602,18 @@ async function fireThreads() {
         document.getElementById('statFastest').textContent = fastestTicks === Infinity ? '—' : fastestTicks.toLocaleString();
 
         progressBar.classList.add('hidden');
-        resultBody.innerHTML = '';
 
         results.forEach((r, index) => {
+            if (method === 'buy-serializable' || r.method === 'SERIALIZABLE') {
+    if (r.success) {
+        r.message = "✅ OK (Giao dịch hoàn tất)";
+    } else if (r.message && r.message.toLowerCase().includes("deadlock")) {
+        r.message = "Deadlock";
+    } else {
+        r.message = "Out of stock";
+    }
+}
+
             const isFastest = r.ticks === fastestTicks && r.ticks > 0;
             const isSuccess = r.success;
             const row = document.createElement('tr');
@@ -587,41 +623,38 @@ async function fireThreads() {
                     ? 'bg-emerald-50 hover:bg-emerald-100' 
                     : 'bg-rose-50 hover:bg-rose-100'
             } transition-colors`;
-            row.style.animationDelay = `${index * 40}ms`;
+            row.style.animationDelay = `${index * 20}ms`;
 
-            const timeParts = r.serverTime ? r.serverTime.split('.') : ['--', '0000000'];
-            const displayTime = `${timeParts[0]}.<span class="text-accent font-bold">${timeParts[1]}</span>`;
-
+            // Rút gọn bớt cột để giao diện 2 cột không bị tràn
             row.innerHTML = `
-                <td class="px-6 py-3">
-                    <span class="px-2 py-1 rounded bg-white border border-border text-accent font-bold text-xs shadow-sm">
+                <td class="px-3 py-2">
+                    <span class="px-2 py-0.5 rounded bg-white border border-border text-accent font-bold text-[11px] shadow-sm">
                         #${r.arrivalOrder}
                     </span>
                 </td>
-                <td class="px-6 py-3 font-bold text-slate-800">${escapeHtml(r.threadId)}</td>
-                <td class="px-6 py-3 text-center">
-                    <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
+                <td class="px-3 py-2 font-bold text-slate-800 text-xs">${escapeHtml(r.threadId)}</td>
+                <td class="px-3 py-2 text-center">
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
                         isSuccess 
                             ? 'bg-emerald-100 text-emerald-700 border-emerald-200' 
                             : 'bg-rose-100 text-rose-700 border-rose-200'
                     }">
-                        <span class="w-1.5 h-1.5 rounded-full ${isSuccess ? 'bg-emerald-500' : 'bg-rose-500'}"></span>
+                        <span class="w-1 h-1 rounded-full ${isSuccess ? 'bg-emerald-500' : 'bg-rose-500'}"></span>
                         ${r.status.toUpperCase()}
                     </span>
                 </td>
-                <td class="px-6 py-3 text-slate-500 font-mono text-[10px] whitespace-nowrap">
-                    ${r.serverTime ? displayTime : '<span class="opacity-40">N/A</span>'}
-                </td>
-                <td class="px-6 py-3 text-slate-600 font-medium text-xs max-w-[250px] truncate" title="${escapeHtml(r.message)}">${escapeHtml(r.message)}</td>
-                <td class="px-6 py-3 text-right font-mono ${isFastest ? 'text-amber-600 font-bold' : 'text-slate-600'}">${r.ticks.toLocaleString()}</td>
-                <td class="px-6 py-3 text-center">
-                    ${isFastest 
-                        ? '<span class="badge-fastest inline-flex items-center gap-1 bg-amber-100 border border-amber-200 text-amber-700 text-xs font-bold px-2.5 py-1 rounded-full shadow-sm">🏆 Nhanh nhất</span>' 
-                        : '—'}
+                <td class="px-3 py-2 text-slate-600 font-medium text-xs max-w-[140px] truncate" title="${escapeHtml(r.message)}">${escapeHtml(r.message)}</td>
+                <td class="px-3 py-2 text-right font-mono text-xs ${isFastest ? 'text-amber-600 font-bold' : 'text-slate-600'}">
+                    ${r.ticks.toLocaleString()} ${isFastest ? '⭐' : ''}
                 </td>
             `;
 
-            resultBody.appendChild(row);
+            // Đẩy 10 thread đầu vào bảng 1, 10 thread sau vào bảng 2
+            if (index < 10) {
+                resultBody1.appendChild(row);
+            } else {
+                resultBody2.appendChild(row);
+            }
         });
 
         showToast(`✅ Hoàn thành! ${successCount} thành công, ${failedCount} thất bại.`, '🎉');
